@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Container, Group, Button, Title, Box, Paper, rem, Text, Modal, TextInput } from "@mantine/core";
+import { Container, Group, Button, Title, Box, Paper, rem, Text, Modal, TextInput, Card, Stack, Loader } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 
 export default function Home() {
@@ -10,6 +10,13 @@ export default function Home() {
   const [modalOpened, setModalOpened] = useState(false);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Projects state
+  const [projects, setProjects] = useState<any[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectModal, setProjectModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
 
   // Debug: log on each render
   console.log("Rendering Home, userName:", userName);
@@ -27,7 +34,58 @@ export default function Home() {
         setUserName(null);
       }
     }
+    // Fetch projects
+    fetchProjects();
+    // eslint-disable-next-line
   }, [router]);
+
+  const fetchProjects = async () => {
+    setProjectsLoading(true);
+    try {
+      const res = await fetch("http://localhost:3333/projects?mode=volatile");
+      if (!res.ok) throw new Error("Failed to fetch projects");
+      const data = await res.json();
+      setProjects(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setProjects([]);
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
+
+  const handleCreateProject = async () => {
+    setCreatingProject(true);
+    try {
+      // Fetch current projects array
+      const resGet = await fetch("http://localhost:3333/projects?mode=volatile");
+      let projectsArr = [];
+      if (resGet.ok) {
+        try {
+          projectsArr = await resGet.json();
+          if (!Array.isArray(projectsArr)) projectsArr = [];
+        } catch {
+          projectsArr = [];
+        }
+      }
+      // Add new project
+      const newProject = { id: Date.now(), name: newProjectName };
+      const updatedProjects = [...projectsArr, newProject];
+      // Store updated array
+      const resSet = await fetch("http://localhost:3333/projects?mode=volatile", {
+        method: "POST",
+        body: JSON.stringify(updatedProjects),
+      });
+      if (!resSet.ok) throw new Error("Failed to create project");
+      showNotification({ title: "Success", message: "Project created!", color: "green" });
+      setProjectModal(false);
+      setNewProjectName("");
+      fetchProjects();
+    } catch (err: any) {
+      showNotification({ title: "Error", message: err.message || "Failed to create project", color: "red" });
+    } finally {
+      setCreatingProject(false);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -89,6 +147,17 @@ export default function Home() {
         />
         <Button onClick={() => { console.log("Save button clicked"); handleSave(); }} loading={saving} fullWidth>
           Save
+        </Button>
+      </Modal>
+      <Modal opened={projectModal} onClose={() => setProjectModal(false)} title="Create Project" centered>
+        <TextInput
+          label="Project Name"
+          value={newProjectName}
+          onChange={(e) => setNewProjectName(e.currentTarget.value)}
+          mb="md"
+        />
+        <Button onClick={handleCreateProject} loading={creatingProject} fullWidth>
+          Create
         </Button>
       </Modal>
       <Paper
@@ -156,7 +225,22 @@ export default function Home() {
       </Paper>
       <Container size="lg" mt={40}>
         <Title order={2} mb="md">Welcome to SparkPad!</Title>
-        {/* Main content goes here */}
+        <Button mb="md" onClick={() => setProjectModal(true)} color="violet">
+          + New Project
+        </Button>
+        {projectsLoading ? (
+          <Loader mt="md" />
+        ) : projects.length === 0 ? (
+          <Text mt="md" c="dimmed">No projects found.</Text>
+        ) : (
+          <Stack mt="md">
+            {projects.map((project, idx) => (
+              <Card key={project.id || idx} shadow="sm" p="md" radius="md" withBorder>
+                <Text fw={600}>{project.name || "Untitled Project"}</Text>
+              </Card>
+            ))}
+          </Stack>
+        )}
       </Container>
     </Box>
   );
