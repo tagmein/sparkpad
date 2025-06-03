@@ -5,6 +5,7 @@ import { Container, Title, Text, Button, Group, Card, Stack, TextInput, ActionIc
 import { IconPlus, IconDotsVertical, IconEdit, IconTrash, IconShare, IconUsers, IconCalendar, IconTag, IconSearch, IconFilter, IconSortAscending, IconSortDescending, IconChartBar, IconChartPie, IconChartLine } from "@tabler/icons-react";
 import { NavigationBar } from "@/components/NavigationBar";
 import { showNotification } from "@mantine/notifications";
+import { useTheme } from '@/contexts/ThemeContext';
 
 interface Project {
     id: string;
@@ -32,6 +33,54 @@ interface ProjectStats {
     mostActiveProjects: { name: string; activityCount: number }[];
 }
 
+// Theme-specific styles
+const themeStyles = {
+    futuristic: {
+        background: "linear-gradient(135deg, #181c2b 0%, #23243a 100%)",
+        overlay: {
+            background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
+            filter: 'blur(48px)',
+        },
+        cardBackground: "rgba(24,28,43,0.85)",
+        cardBorder: "1.5px solid #3a2e5d77",
+        cardShadow: '0 8px 32px 0 #232b4d44',
+        textColor: "#fff",
+        secondaryTextColor: "#b0b7ff",
+        accentColor: "#7f5fff",
+        buttonGradient: { from: '#232b4d', to: '#3a2e5d', deg: 90 },
+        badgeColor: 'violet',
+    },
+    classic: {
+        background: "#f8f9fa",
+        overlay: {
+            background: 'none',
+            filter: 'none',
+        },
+        cardBackground: "#fff",
+        cardBorder: "1px solid #e9ecef",
+        cardShadow: '0 2px 8px rgba(0,0,0,0.06)',
+        textColor: "#1a1b1e",
+        secondaryTextColor: "#868e96",
+        accentColor: "#228be6",
+        buttonGradient: { from: '#228be6', to: '#40c057', deg: 90 },
+        badgeColor: 'blue',
+    },
+};
+
+// Utility to sync projects to localStorage
+function saveProjectsToLocal(projects) {
+    try {
+        localStorage.setItem('projects:backup', JSON.stringify(projects));
+    } catch { }
+}
+
+function loadProjectsFromLocal() {
+    try {
+        const data = localStorage.getItem('projects:backup');
+        return data ? JSON.parse(data) : [];
+    } catch { return []; }
+}
+
 export default function ProjectsPage() {
     const router = useRouter();
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
@@ -54,6 +103,8 @@ export default function ProjectsPage() {
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [showStats, setShowStats] = useState(false);
     const [creatingProject, setCreatingProject] = useState(false);
+    const { theme } = useTheme();
+    const styles = themeStyles[theme];
 
     useEffect(() => {
         if (searchParams && searchParams.get('showStats') === '1') {
@@ -73,9 +124,21 @@ export default function ProjectsPage() {
                     `http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`
                 );
                 if (!res.ok) throw new Error("Failed to fetch projects");
-                const text = await res.text();
-                const data = text ? JSON.parse(text) : [];
-                setProjects(Array.isArray(data) ? data : []);
+                let data = await res.text();
+                let projects = data ? JSON.parse(data) : [];
+                if (!Array.isArray(projects) || projects.length === 0) {
+                    // Try to restore from localStorage
+                    projects = loadProjectsFromLocal();
+                    if (Array.isArray(projects) && projects.length > 0) {
+                        // Restore to backend
+                        await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`,
+                            { method: "POST", body: JSON.stringify(projects) });
+                        // Reload to pick up restored projects
+                        window.location.reload();
+                        return;
+                    }
+                }
+                setProjects(projects);
             } catch (err: any) {
                 setError(err.message);
                 showNotification({
@@ -90,7 +153,8 @@ export default function ProjectsPage() {
         fetchProjects();
     }, [router]);
 
-    const handleCreateProject = async () => {
+    const handleCreateProject = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         if (!newProjectName.trim()) return;
         setCreatingProject(true);
         try {
@@ -104,6 +168,9 @@ export default function ProjectsPage() {
             if (res.ok) {
                 const text = await res.text();
                 projects = text ? JSON.parse(text) : [];
+                if (!Array.isArray(projects)) {
+                    projects = [];
+                }
             }
             const newProject = {
                 id: Date.now().toString(),
@@ -137,6 +204,9 @@ export default function ProjectsPage() {
                     message: `New project "${newProject.name}" has been created`
                 }
             }));
+
+            // Save projects to localStorage
+            saveProjectsToLocal(projects);
         } catch (err: any) {
             showNotification({ title: "Error", message: err.message || "Failed to create project", color: "red" });
         } finally {
@@ -153,7 +223,8 @@ export default function ProjectsPage() {
         setModalOpened(true);
     };
 
-    const handleUpdateProject = async () => {
+    const handleUpdateProject = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         if (!editingProject) return;
         try {
             const userEmail = localStorage.getItem("user:username");
@@ -197,6 +268,9 @@ export default function ProjectsPage() {
                 message: "Project updated successfully!",
                 color: "green",
             });
+
+            // Save projects to localStorage
+            saveProjectsToLocal(updatedProjects);
         } catch (err: any) {
             showNotification({
                 title: "Error",
@@ -238,6 +312,9 @@ export default function ProjectsPage() {
                 message: "Project deleted successfully!",
                 color: "green",
             });
+
+            // Save projects to localStorage
+            saveProjectsToLocal(updatedProjects);
         } catch (err: any) {
             showNotification({
                 title: "Error",
@@ -285,6 +362,9 @@ export default function ProjectsPage() {
                 message: "Project shared successfully!",
                 color: "green",
             });
+
+            // Save projects to localStorage
+            saveProjectsToLocal(updatedProjects);
         } catch (err: any) {
             showNotification({
                 title: "Error",
@@ -399,26 +479,39 @@ export default function ProjectsPage() {
     };
 
     return (
-        <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
+        <div style={{ minHeight: '100vh', background: styles.background, position: 'relative', overflow: 'hidden' }}>
+            {/* Theme-specific Glow Overlay */}
+            <div style={{
+                position: 'absolute',
+                top: 0, left: 0, right: 0, bottom: 0,
+                pointerEvents: 'none',
+                zIndex: 0,
+                ...styles.overlay,
+            }} />
             <NavigationBar showBackButton />
             <Container size="lg" py="xl">
                 <Group justify="space-between" mb="xl">
                     <div>
-                        <Title order={2}>Projects</Title>
-                        <Text c="dimmed" size="sm">Manage your projects and collaborate with your team</Text>
+                        <Title order={2} style={{ color: styles.textColor, fontWeight: 800, letterSpacing: 1 }}>Projects</Title>
+                        <Text c={styles.secondaryTextColor} size="sm">Manage your projects and collaborate with your team</Text>
                     </div>
                     <Group>
                         <Button
-                            variant="light"
-                            color="violet"
+                            variant={theme === 'futuristic' ? 'gradient' : 'filled'}
+                            gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
+                            color={theme === 'classic' ? 'blue' : undefined}
                             leftSection={<IconChartBar size={16} />}
                             onClick={() => setShowStats(!showStats)}
-                            style={{ borderWidth: 2 }}
+                            style={{ borderWidth: 2, fontWeight: 700, color: '#fff', boxShadow: styles.cardShadow }}
                         >
                             {showStats ? 'Hide Statistics' : 'Show Statistics'}
                         </Button>
                         <Button
                             leftSection={<IconPlus size={16} />}
+                            variant={theme === 'futuristic' ? 'gradient' : 'filled'}
+                            gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
+                            color={theme === 'classic' ? 'blue' : undefined}
+                            style={{ fontWeight: 700, color: '#fff', boxShadow: styles.cardShadow }}
                             onClick={() => {
                                 setEditingProject(null);
                                 setNewProjectName("");
@@ -434,7 +527,7 @@ export default function ProjectsPage() {
                 </Group>
 
                 {showStats && (
-                    <Paper withBorder p="md" mb="xl" radius="md" style={{ borderWidth: 2, borderColor: 'var(--mantine-color-violet-6)' }}>
+                    <Paper withBorder p="md" mb="xl" radius="md" style={{ background: styles.cardBackground, border: styles.cardBorder, boxShadow: styles.cardShadow, color: styles.textColor }}>
                         <Stack>
                             <Group justify="space-between" align="center">
                                 <Title order={3}>Project Statistics</Title>
@@ -575,7 +668,7 @@ export default function ProjectsPage() {
                     </Paper>
                 )}
 
-                <Paper withBorder p="md" mb="xl" radius="md">
+                <Paper withBorder p="md" mb="xl" radius="md" style={{ background: styles.cardBackground, border: styles.cardBorder, boxShadow: styles.cardShadow }}>
                     <Stack>
                         <Group>
                             <Input
@@ -584,7 +677,21 @@ export default function ProjectsPage() {
                                 onChange={(e) => setSearchQuery(e.currentTarget.value)}
                                 leftSection={<IconSearch size={16} />}
                                 style={{ flex: 1 }}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                        // Optionally, you could trigger a search here, but filtering is live
+                                    }
+                                }}
                             />
+                            <Button
+                                variant="light"
+                                color="violet"
+                                onClick={() => {/* Filtering is live, but you could add extra logic here if needed */ }}
+                                style={{ fontWeight: 700, borderRadius: 12 }}
+                                leftSection={<IconSearch size={16} />}
+                            >
+                                Search
+                            </Button>
                             <SegmentedControl
                                 value={viewMode}
                                 onChange={(value) => setViewMode(value as 'grid' | 'list')}
@@ -643,7 +750,7 @@ export default function ProjectsPage() {
                 ) : error ? (
                     <Text c="red">{error}</Text>
                 ) : filteredAndSortedProjects.length === 0 ? (
-                    <Card withBorder p="xl" radius="md" style={{ textAlign: 'center' }}>
+                    <Card withBorder p="xl" radius="md" style={{ textAlign: 'center', background: 'rgba(35,43,77,0.18)', border: '1.5px solid #3a2e5d77', color: '#b0b7ff', boxShadow: '0 2px 16px #232b4d22' }}>
                         <Stack align="center" gap="md">
                             <Text size="lg" fw={500}>No projects found</Text>
                             <Text c="dimmed">
@@ -666,76 +773,71 @@ export default function ProjectsPage() {
                         gap: '1rem'
                     }}>
                         {(filteredAndSortedProjects || []).map((project) => (
-                            <Card key={project.id} withBorder shadow="sm" radius="md" p="lg">
+                            <Card key={project.id} withBorder shadow="md" radius="md" p="lg" style={{
+                                background: styles.cardBackground,
+                                border: styles.cardBorder,
+                                color: styles.textColor,
+                                minHeight: 180,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'box-shadow 0.2s',
+                                boxShadow: styles.cardShadow
+                            }}>
                                 <Group justify="space-between" mb="md">
                                     <div>
-                                        <Text fw={500} size="lg">{project.name}</Text>
-                                        <Badge color={getStatusColor(project.status)} size="sm">
-                                            {project.status}
-                                        </Badge>
+                                        <Text fw={700} size="lg" style={{ color: styles.accentColor }}>{project.name}</Text>
+                                        <Badge color={styles.badgeColor} size="sm" style={{ fontWeight: 600 }}>{project.status}</Badge>
                                     </div>
                                     <Menu shadow="md" width={200}>
                                         <Menu.Target>
-                                            <ActionIcon variant="subtle" color="gray">
+                                            <ActionIcon variant="subtle" color={theme === 'futuristic' ? 'gray' : 'blue'} style={{ color: styles.secondaryTextColor, background: styles.cardBackground }}>
                                                 <IconDotsVertical size={16} />
                                             </ActionIcon>
                                         </Menu.Target>
-                                        <Menu.Dropdown>
-                                            <Menu.Item
-                                                leftSection={<IconEdit size={16} />}
-                                                onClick={() => handleEditProject(project)}
-                                            >
+                                        <Menu.Dropdown style={{ background: styles.cardBackground, border: styles.cardBorder, color: styles.textColor }}>
+                                            <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => handleEditProject(project)}>
                                                 Edit
                                             </Menu.Item>
-                                            <Menu.Item
-                                                leftSection={<IconShare size={16} />}
-                                                onClick={() => {
-                                                    setEditingProject(project);
-                                                    setShareModalOpened(true);
-                                                }}
-                                            >
+                                            <Menu.Item leftSection={<IconShare size={16} />} onClick={() => { setEditingProject(project); setShareModalOpened(true); }}>
                                                 Share
                                             </Menu.Item>
-                                            <Menu.Item
-                                                leftSection={<IconTrash size={16} />}
-                                                color="red"
-                                                onClick={() => handleDeleteProject(project.id)}
-                                            >
+                                            <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => handleDeleteProject(project.id)}>
                                                 Delete
                                             </Menu.Item>
                                         </Menu.Dropdown>
                                     </Menu>
                                 </Group>
-                                <Text size="sm" c="dimmed" mb="md" lineClamp={2}>
-                                    {project.description}
-                                </Text>
+                                <Text size="sm" c={styles.secondaryTextColor} mb="md" lineClamp={2}>{project.description}</Text>
                                 <Group gap="xs" mb="md">
-                                    {(project.tags || []).map((tag, index) => (
-                                        <Badge key={index} variant="light" color="violet" size="sm">
-                                            {tag}
-                                        </Badge>
+                                    {(project.tags || []).map((tag: string, index: number) => (
+                                        <Badge key={index} variant="light" color={styles.badgeColor} size="sm">{tag}</Badge>
                                     ))}
                                 </Group>
                                 <Group justify="space-between">
                                     <Group gap="xs">
-                                        <Tooltip label="Members">
+                                        <Tooltip label="Members" color={theme === 'futuristic' ? 'gray' : 'blue'}>
                                             <Group gap={4}>
-                                                <IconUsers size={16} />
-                                                <Text size="sm">{project.members}</Text>
+                                                <IconUsers size={16} color={styles.secondaryTextColor} />
+                                                <Text size="sm" style={{ color: styles.secondaryTextColor }}>{project.members}</Text>
                                             </Group>
                                         </Tooltip>
-                                        <Tooltip label="Created">
+                                        <Tooltip label="Created" color={theme === 'futuristic' ? 'gray' : 'blue'}>
                                             <Group gap={4}>
-                                                <IconCalendar size={16} />
-                                                <Text size="sm">
-                                                    {new Date(project.createdAt).toLocaleDateString()}
+                                                <IconCalendar size={16} color={styles.secondaryTextColor} />
+                                                <Text size="sm" style={{ color: styles.secondaryTextColor }}>
+                                                    {project.createdAt ? new Date(project.createdAt).toLocaleDateString() : "No Date"}
                                                 </Text>
                                             </Group>
                                         </Tooltip>
                                     </Group>
                                     <Button
-                                        variant="light"
+                                        variant={theme === 'futuristic' ? 'gradient' : 'filled'}
+                                        gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
+                                        color={theme === 'classic' ? 'blue' : undefined}
                                         size="sm"
+                                        style={{ fontWeight: 700, color: '#fff', boxShadow: styles.cardShadow }}
                                         onClick={() => router.push(`/projects/${project.id}`)}
                                     >
                                         View Details
@@ -749,49 +851,58 @@ export default function ProjectsPage() {
 
             <Modal
                 opened={modalOpened}
-                onClose={() => {
-                    setModalOpened(false);
-                    setEditingProject(null);
-                }}
+                onClose={() => { setModalOpened(false); setEditingProject(null); }}
                 title={editingProject ? "Edit Project" : "New Project"}
                 centered
+                styles={{
+                    content: {
+                        background: styles.cardBackground,
+                        border: styles.cardBorder,
+                        boxShadow: styles.cardShadow,
+                        color: styles.textColor,
+                        borderRadius: 24,
+                        padding: 32,
+                    },
+                }}
             >
-                <Stack>
-                    <TextInput
-                        label="Project Name"
-                        value={newProjectName}
-                        onChange={(e) => setNewProjectName(e.currentTarget.value)}
-                        required
-                    />
-                    <Textarea
-                        label="Description"
-                        value={newProjectDescription}
-                        onChange={(e) => setNewProjectDescription(e.currentTarget.value)}
-                        minRows={3}
-                    />
-                    <Select
-                        label="Status"
-                        value={newProjectStatus}
-                        onChange={(value) => setNewProjectStatus(value as 'active' | 'archived' | 'completed')}
-                        data={[
-                            { value: 'active', label: 'Active' },
-                            { value: 'archived', label: 'Archived' },
-                            { value: 'completed', label: 'Completed' },
-                        ]}
-                    />
-                    <TextInput
-                        label="Tags (comma-separated)"
-                        value={newProjectTags}
-                        onChange={(e) => setNewProjectTags(e.currentTarget.value)}
-                        placeholder="e.g. web, design, marketing"
-                    />
-                    <Button
-                        onClick={editingProject ? handleUpdateProject : handleCreateProject}
-                        fullWidth
-                    >
-                        {editingProject ? "Update Project" : "Create Project"}
-                    </Button>
-                </Stack>
+                <form onSubmit={editingProject ? handleUpdateProject : handleCreateProject}>
+                    <Stack>
+                        <TextInput
+                            label="Project Name"
+                            value={newProjectName}
+                            onChange={(e) => setNewProjectName(e.currentTarget.value)}
+                            required
+                        />
+                        <Textarea
+                            label="Description"
+                            value={newProjectDescription}
+                            onChange={(e) => setNewProjectDescription(e.currentTarget.value)}
+                            minRows={3}
+                        />
+                        <Select
+                            label="Status"
+                            value={newProjectStatus}
+                            onChange={(value) => setNewProjectStatus(value as 'active' | 'archived' | 'completed')}
+                            data={[
+                                { value: 'active', label: 'Active' },
+                                { value: 'archived', label: 'Archived' },
+                                { value: 'completed', label: 'Completed' },
+                            ]}
+                        />
+                        <TextInput
+                            label="Tags (comma-separated)"
+                            value={newProjectTags}
+                            onChange={(e) => setNewProjectTags(e.currentTarget.value)}
+                            placeholder="e.g. web, design, marketing"
+                        />
+                        <Button
+                            type="submit"
+                            fullWidth
+                        >
+                            {editingProject ? "Update Project" : "Create Project"}
+                        </Button>
+                    </Stack>
+                </form>
             </Modal>
 
             <Modal
@@ -799,6 +910,16 @@ export default function ProjectsPage() {
                 onClose={() => setShareModalOpened(false)}
                 title="Share Project"
                 centered
+                styles={{
+                    content: {
+                        background: styles.cardBackground,
+                        border: styles.cardBorder,
+                        boxShadow: styles.cardShadow,
+                        color: styles.textColor,
+                        borderRadius: 24,
+                        padding: 32,
+                    },
+                }}
             >
                 <Stack>
                     <TextInput
